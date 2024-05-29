@@ -24,7 +24,6 @@ from torch.utils.data import Dataset
 from tqdm import tqdm
 from scipy.ndimage import uniform_filter, median_filter
 import torchvision.transforms as transforms
-
 import pdb
 
 import pickle
@@ -393,7 +392,7 @@ def img2label_paths(img_paths):
 class LoadImagesAndLabels(Dataset):  # for training/testing
     def __init__(self, path, img_size=640, batch_size=16, augment=False, hyp=None, rect=False, image_weights=False,
                  cache_images=False, single_cls=False, stride=32, pad=0.0, prefix='',noise_path=None,mask=True,
-                 poison_rate=1,single_class=14):
+                 poison_rate=1, single_class=14):
         self.img_size = img_size
         self.augment = augment
         self.hyp = hyp
@@ -412,8 +411,8 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             self.transform=transforms.Grayscale(3)
         if self.augment=='bdr':
             self.transform=transforms.RandomPosterize(bits=2, p=1)
+        
         self.single_class=single_class
-
         try:
             f = []  # image files
             for p in path if isinstance(path, list) else [path]:
@@ -520,7 +519,6 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         if self.noise_path:
             with open(self.noise_path, 'rb') as f:
                 self.raw_noise = pickle.load(f)
-                print(f"Loaded noise with length of {len(self.raw_noise)}")
         # pdb.set_trace() 
 
     def cache_labels(self, path=Path('./labels.cache'), prefix=''):
@@ -585,16 +583,31 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         clses=labels[:,0]
         top_left=labels[:,1:3]
         bottom_right=labels[:,3:5]
-
+        # print("Coooord")
+        # print(top_left, bottom_right)
+        # Unpack the coordinates
         for n in range(len(top_left)):
             c=clses[n]
             if c==self.single_class or self.single_class<0:
+                noise=self.raw_noise[random.randrange(c*500,(c+1)*500)]
+                # noise=self.raw_noise[0]
                 (x1, y1) = top_left[n]
                 (x2, y2) = bottom_right[n]
                 x1, y1, x2, y2 = int(x1),int(y1),int(x2),int(y2)
+                dim = (x2-x1, y2-y1)
                 # Apply mask (keep the region within the coordinates)
-                masked_image[y1:y2, x1:x2] = image[y1:y2, x1:x2]
+                
+                ### RESIZE
+                # masked_image[y1:y2, x1:x2] = cv2.resize(np.array(np.clip(noise,0,255),dtype=np.uint8),dim)
+                
+                ### TILE
+                tile_x_count = int(np.ceil(dim[0] / 224))
+                tile_y_count = int(np.ceil(dim[1] / 224))
 
+                # Create a tiled pattern to cover the bounding box
+                tiled_pattern = np.tile(noise, (tile_y_count, tile_x_count, 1))
+                masked_image[y1:y2, x1:x2] =np.array(np.clip(tiled_pattern[:dim[1], :dim[0], :],0,255),dtype=np.uint8)
+            
         return masked_image
     
     def __len__(self):
@@ -643,16 +656,16 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                 labels[:, 1:] = xywhn2xyxy(labels[:, 1:], ratio[0] * w, ratio[1] * h, padw=pad[0], padh=pad[1])
 
         if self.noise_path:
-
             if random.uniform(0, 1)<self.poison_rate:
 
                 img=img.astype(np.int16)
-                noise=(self.raw_noise[index]).astype(np.int16).transpose(1,2,0)
+        
+                # noise=(self.raw_noise[index]).astype(np.int16).transpose(1,2,0)
+                
                 if self.mask:
-                    noise=self.apply_mask(noise,labels)
+                    noise=self.apply_mask(img,labels)
                     
-                img+=noise   
-
+                img+=noise
             # img=img.clip(0,255).astype(np.uint8)
             img=img.clip(0,255).astype(np.uint8)
             
@@ -743,7 +756,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         if self.augment == 'bdr':
             img = self.transform(Image.fromarray(img))
             img = np.asarray(img)
-
+            
         labels_out = torch.zeros((nL, 6))
         if nL:
             labels_out[:, 1:] = torch.from_numpy(labels)

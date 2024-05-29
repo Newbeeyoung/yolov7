@@ -11,11 +11,12 @@ from utils.datasets import LoadImagesAndLabels
 from utils.datasets import img2label_paths
 from utils.general import colorstr, xywh2xyxy, check_dataset
 
-try:
-    import wandb
-    from wandb import init, finish
-except ImportError:
-    wandb = None
+# try:
+#     import wandb
+#     from wandb import init, finish
+# except ImportError:
+#     wandb = None
+wandb=None
 
 WANDB_ARTIFACT_PREFIX = 'wandb-artifact://'
 
@@ -29,7 +30,6 @@ def check_wandb_config_file(data_config_file):
     if Path(wandb_config).is_file():
         return wandb_config
     return data_config_file
-
 
 def get_run_info(run_path):
     run_path = Path(remove_prefix(run_path, WANDB_ARTIFACT_PREFIX))
@@ -89,10 +89,13 @@ class WandbLogger():
                 model_artifact_name = WANDB_ARTIFACT_PREFIX + model_artifact_name
                 assert wandb, 'install wandb to resume wandb runs'
                 # Resume wandb-artifact:// runs here| workaround for not overwriting wandb.config
-                self.wandb_run = wandb.init(id=run_id, project=project, resume='allow')
+                self.wandb_run = wandb.init(id=run_id, 
+                                            settings=wandb.Settings(_service_wait=300),
+                                            project=project, resume='allow')
                 opt.resume = model_artifact_name
         elif self.wandb:
             self.wandb_run = wandb.init(config=opt,
+                                        settings=wandb.Settings(_service_wait=300),
                                         resume="allow",
                                         project='YOLOR' if opt.project == 'runs/train' else Path(opt.project).stem,
                                         name=name,

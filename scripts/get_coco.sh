@@ -9,6 +9,8 @@ f='coco2017labels-segments.zip' # or 'coco2017labels.zip', 68 MB
 echo 'Downloading' $url$f ' ...'
 curl -L $url$f -o $f && unzip -q $f -d $d && rm $f & # download, unzip, remove in background
 
+unzip -q coco2017labels-segments.zip -d ./
+
 # Download/unzip images
 d='./coco/images' # unzip directory
 url=http://images.cocodataset.org/zips/

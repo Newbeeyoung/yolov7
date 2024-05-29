@@ -634,6 +634,7 @@ class ComputeLossOTA:
 
         loss = lbox + lobj + lcls
         return loss * bs, torch.cat((lbox, lobj, lcls, loss)).detach()
+        # return loss*bs, lcls
 
     def build_targets(self, p, targets, imgs):
         

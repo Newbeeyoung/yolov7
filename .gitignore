@@ -261,3 +261,12 @@ com_crashlytics_export_strings.xml
 crashlytics.properties
 crashlytics-build.properties
 fabric.properties
+
+.yolo
+/voc
+/runs
+*.tar.gz
+nohup.out
+command.txt
+*.npy
+*.pkl

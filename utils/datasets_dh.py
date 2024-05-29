@@ -22,8 +22,7 @@ import torch.nn.functional as F
 from PIL import Image, ExifTags
 from torch.utils.data import Dataset
 from tqdm import tqdm
-from scipy.ndimage import uniform_filter, median_filter
-import torchvision.transforms as transforms
+from scipy.ndimage import uniform_filter,median_filter
 
 import pdb
 
@@ -70,8 +69,7 @@ def exif_size(img):
 
 
 def create_dataloader(path, imgsz, batch_size, stride, opt, hyp=None, augment=False, cache=False, pad=0.0, rect=False,
-                      rank=-1, world_size=1, workers=8, image_weights=False, quad=False, prefix='',
-                      noise_path=None,poison_rate=1,single_class=14):
+                      rank=-1, world_size=1, workers=8, image_weights=False, quad=False, prefix='',noise_path=None):
     # Make sure only the first process in DDP process the dataset first, and the following others can use the cache
     with torch_distributed_zero_first(rank):
         dataset = LoadImagesAndLabels(path, imgsz, batch_size,
@@ -84,9 +82,7 @@ def create_dataloader(path, imgsz, batch_size, stride, opt, hyp=None, augment=Fa
                                       pad=pad,
                                       image_weights=image_weights,
                                       prefix=prefix,
-                                      noise_path=noise_path,
-                                      poison_rate=poison_rate,
-                                      single_class=single_class)
+                                      noise_path=noise_path)
 
     batch_size = min(batch_size, len(dataset))
     nw = min([os.cpu_count() // world_size, batch_size if batch_size > 1 else 0, workers])  # number of workers
@@ -392,8 +388,7 @@ def img2label_paths(img_paths):
 
 class LoadImagesAndLabels(Dataset):  # for training/testing
     def __init__(self, path, img_size=640, batch_size=16, augment=False, hyp=None, rect=False, image_weights=False,
-                 cache_images=False, single_cls=False, stride=32, pad=0.0, prefix='',noise_path=None,mask=True,
-                 poison_rate=1,single_class=14):
+                 cache_images=False, single_cls=False, stride=32, pad=0.0, prefix='',noise_path=None):
         self.img_size = img_size
         self.augment = augment
         self.hyp = hyp
@@ -406,14 +401,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         #self.albumentations = Albumentations() if augment else None
         # noise_path="runs/train/yolov7-tap23/TAP-def-noise.pkl"
         self.noise_path=noise_path
-        self.mask=mask
-        self.poison_rate=poison_rate
-        if self.augment=='gray':
-            self.transform=transforms.Grayscale(3)
-        if self.augment=='bdr':
-            self.transform=transforms.RandomPosterize(bits=2, p=1)
-        self.single_class=single_class
-
+        
         try:
             f = []  # image files
             for p in path if isinstance(path, list) else [path]:
@@ -520,7 +508,6 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         if self.noise_path:
             with open(self.noise_path, 'rb') as f:
                 self.raw_noise = pickle.load(f)
-                print(f"Loaded noise with length of {len(self.raw_noise)}")
         # pdb.set_trace() 
 
     def cache_labels(self, path=Path('./labels.cache'), prefix=''):
@@ -578,25 +565,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         torch.save(x, path)  # save for next time
         logging.info(f'{prefix}New cache created: {path}')
         return x
-    
-    def apply_mask(self,image,labels):
-        # Create a copy of the image to apply the mask
-        masked_image = np.zeros_like(image)
-        clses=labels[:,0]
-        top_left=labels[:,1:3]
-        bottom_right=labels[:,3:5]
 
-        for n in range(len(top_left)):
-            c=clses[n]
-            if c==self.single_class or self.single_class<0:
-                (x1, y1) = top_left[n]
-                (x2, y2) = bottom_right[n]
-                x1, y1, x2, y2 = int(x1),int(y1),int(x2),int(y2)
-                # Apply mask (keep the region within the coordinates)
-                masked_image[y1:y2, x1:x2] = image[y1:y2, x1:x2]
-
-        return masked_image
-    
     def __len__(self):
         return len(self.img_files)
 
@@ -643,17 +612,8 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                 labels[:, 1:] = xywhn2xyxy(labels[:, 1:], ratio[0] * w, ratio[1] * h, padw=pad[0], padh=pad[1])
 
         if self.noise_path:
-
-            if random.uniform(0, 1)<self.poison_rate:
-
-                img=img.astype(np.int16)
-                noise=(self.raw_noise[index]).astype(np.int16).transpose(1,2,0)
-                if self.mask:
-                    noise=self.apply_mask(noise,labels)
-                    
-                img+=noise   
-
-            # img=img.clip(0,255).astype(np.uint8)
+            img=img.astype(np.int16)
+            img+=(self.raw_noise[index]).astype(np.int16).transpose(1,2,0)
             img=img.clip(0,255).astype(np.uint8)
             
         if self.augment:
@@ -706,44 +666,20 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                 if nL:
                     labels[:, 1] = 1 - labels[:, 1]
 
-        if self.augment=='jpeg30':
-        #   JPEG compression
-            output = BytesIO()
-            pil_img=Image.fromarray(img)
-            pil_img.save(output, 'JPEG', quality=50)
-            jpeg_img = PILImage.open(output)
-            img=np.array(jpeg_img)
-        if self.augment=='jpeg50':
-        #   JPEG compression
-            output = BytesIO()
-            pil_img=Image.fromarray(img)
-            pil_img.save(output, 'JPEG', quality=50)
-            jpeg_img = PILImage.open(output)
-            img=np.array(jpeg_img)
-        if self.augment=='jpeg80':
-        #   JPEG compression
-            output = BytesIO()
-            pil_img=Image.fromarray(img)
-            pil_img.save(output, 'JPEG', quality=80)
-            jpeg_img = PILImage.open(output)
-            img=np.array(jpeg_img)
-        if self.augment=='gauss':
-            # Adding noise
-            noise=np.random.normal(0, 255*0.1, img.shape).astype(np.int16)
-            img=img.astype(np.int16)+noise
-            img=img.clip(0,255).astype(np.uint8)
-        if self.augment=='meanf':
-            # Add low-pass filter
-            img=uniform_filter(img,size=3)
-        if self.augment=='medianf':
-            img = median_filter(img, size=3)
-        if self.augment == 'gray':
-            img = self.transform(Image.fromarray(img))
-            img=np.asarray(img)
-        if self.augment == 'bdr':
-            img = self.transform(Image.fromarray(img))
-            img = np.asarray(img)
-
+        # if self.augment:
+        #     output = BytesIO()
+        #     pil_img=Image.fromarray(img) 
+        #     pil_img.save(output, 'JPEG', quality=30)
+        #     jpeg_img = PILImage.open(output)
+        #     img=np.array(jpeg_img)
+            
+            # noise=np.random.normal(0, 255*0.1, img.shape).astype(np.int16)
+            # img=img.astype(np.int16)+noise
+            # img=img.clip(0,255).astype(np.uint8)
+            
+            # img=uniform_filter(img,size=3)
+            # img = median_filter(img, size=3)
+            
         labels_out = torch.zeros((nL, 6))
         if nL:
             labels_out[:, 1:] = torch.from_numpy(labels)
@@ -795,6 +731,7 @@ def load_image(self, index):
 
     if img is None:  # not cached
         path = self.img_files[index]
+        path = path.replace("VOCdevkit/VOC2012/JPEGImages","/dh/Output_tile_Fourier_DH/Stegos")
         img = cv2.imread(path)  # BGR
         assert img is not None, 'Image Not Found ' + path
         h0, w0 = img.shape[:2]  # orig hw
