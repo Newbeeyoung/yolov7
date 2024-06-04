@@ -587,12 +587,16 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         # print("Coooord")
         # print(top_left, bottom_right)
         # Unpack the coordinates
+        pattern_size=640
         for n in range(len(top_left)):
             c=clses[n]
             if c==self.single_class or self.single_class<0:
                 # print("class:",c)
                 # noise=self.raw_noise[random.randrange(c*500,(c+1)*500)]
-                noise=np.stack((self.raw_noise[self.fourier_basis,self.fourier_basis]*8/self.raw_noise[self.fourier_basis,self.fourier_basis].max(),)*3, axis=-1)
+                # noise=np.stack((self.raw_noise[self.fourier_basis,self.fourier_basis]*8/self.raw_noise[self.fourier_basis,self.fourier_basis].max(),)*3, axis=-1)
+                raw_noise=Image.open("utils/noise_bandwidth_point160_160.png")
+                raw_noise=np.asarray(raw_noise)
+                noise=np.stack((raw_noise*8.0/raw_noise.max(),)*3, axis=-1)
                 (x1, y1) = top_left[n]
                 (x2, y2) = bottom_right[n]
                 x1, y1, x2, y2 = int(x1),int(y1),int(x2),int(y2)
@@ -603,8 +607,8 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                 # masked_image[y1:y2, x1:x2] = cv2.resize(np.array(np.clip(noise,0,255),dtype=np.uint8),dim)
                 
                 ### TILE
-                tile_x_count = int(np.ceil(dim[0] / 224))
-                tile_y_count = int(np.ceil(dim[1] / 224))
+                tile_x_count = int(np.ceil(dim[0] / pattern_size))
+                tile_y_count = int(np.ceil(dim[1] / pattern_size))
 
                 # Create a tiled pattern to cover the bounding box
                 tiled_pattern = np.tile(noise, (tile_y_count, tile_x_count, 1))
